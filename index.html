@@ -7,6 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Aesthetic Choice</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/smartcrop/2.0.5/smartcrop.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.min.js"></script>
     <style>
         :root { --safe-bottom: env(safe-area-inset-bottom); }
         body { 
@@ -25,7 +26,7 @@
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.95); z-index: 100; flex-direction: column; align-items: center; justify-content: center;
         }
-        #saveModal img { max-width: 90%; max-height: 70%; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
+        #saveModal img { max-width: 90%; max-height: 70%; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); }
         
         .suggestion-rail {
             height: 140px; display: flex; overflow-x: auto; align-items: flex-start;
@@ -46,6 +47,7 @@
         .btn-save { background: #34C759; color: #fff; display: none; }
         .btn-reset { background: #FF3B30; color: #fff; display: none; }
         input[type="file"] { display: none; }
+        .modal-text { margin-bottom: 20px; font-size: 14px; color: #ccc; }
     </style>
 </head>
 <body>
@@ -55,7 +57,7 @@
     </div>
 
     <div id="saveModal">
-        <p style="margin-bottom:20px; font-weight:600;">Long-press to "Save to Photos"</p>
+        <p class="modal-text">Metadata preserved. <strong>Long-press</strong> to save.</p>
         <img id="finalImage" src="">
         <button class="btn" style="margin-top:30px; background:#444; color:#fff;" onclick="closeModal()">BACK TO EDIT</button>
     </div>
@@ -67,7 +69,7 @@
         <button id="previewSaveBtn" class="btn btn-save">PREVIEW & SAVE</button>
     </div>
 
-    <div class="suggestion-rail" id="rail"></div>
+    <div id="rail" class="suggestion-rail"></div>
 
     <script>
         const upload = document.getElementById('upload');
@@ -79,11 +81,8 @@
         const rail = document.getElementById('rail');
         const mCtx = mainCanvas.getContext('2d');
         
-        let currentImg = null;
-        let currentCrop = null;
-        let aiSuggestedCrop = null;
-        let isDragging = false, isResizing = false;
-        let startX, startY;
+        let currentImg = null, currentCrop = null, aiSuggestedCrop = null, originalExif = null;
+        let isDragging = false, isResizing = false, startX, startY;
 
         upload.addEventListener('change', (e) => {
             const file = e.target.files[0];
@@ -91,7 +90,12 @@
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
-                img.onload = () => { currentImg = img; processImage(img); };
+                img.onload = () => { 
+                    currentImg = img; 
+                    try { originalExif = piexif.load(event.target.result); } 
+                    catch (e) { originalExif = null; }
+                    processImage(img); 
+                };
                 img.src = event.target.result;
             };
             reader.readAsDataURL(file);
@@ -99,19 +103,18 @@
 
         previewSaveBtn.addEventListener('click', () => {
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = currentCrop.width;
-            tempCanvas.height = currentCrop.height;
+            tempCanvas.width = currentCrop.width; tempCanvas.height = currentCrop.height;
             tempCanvas.getContext('2d').drawImage(currentImg, currentCrop.x, currentCrop.y, currentCrop.width, currentCrop.height, 0, 0, currentCrop.width, currentCrop.height);
-            finalImg.src = tempCanvas.toDataURL("image/jpeg", 0.95);
+            let dataUrl = tempCanvas.toDataURL("image/jpeg", 0.95);
+            if (originalExif) {
+                try { dataUrl = piexif.insert(piexif.dump(originalExif), dataUrl); } catch (e) {}
+            }
+            finalImg.src = dataUrl;
             saveModal.style.display = 'flex';
         });
 
         function closeModal() { saveModal.style.display = 'none'; }
-
-        resetBtn.addEventListener('click', () => {
-            currentCrop = Object.assign({}, aiSuggestedCrop);
-            renderMainDisplay();
-        });
+        resetBtn.addEventListener('click', () => { currentCrop = Object.assign({}, aiSuggestedCrop); renderMainDisplay(); });
 
         mainCanvas.addEventListener('touchstart', (e) => {
             if (!currentCrop) return;
@@ -121,27 +124,18 @@
             const scaleY = mainCanvas.height / rect.height;
             startX = (touch.clientX - rect.left) * scaleX;
             startY = (touch.clientY - rect.top) * scaleY;
-            
-            const brX = currentCrop.x + currentCrop.width;
-            const brY = currentCrop.y + currentCrop.height;
-            
-            // Check for resize handle (bottom right)
+            const brX = currentCrop.x + currentCrop.width, brY = currentCrop.y + currentCrop.height;
             if (startX > brX - 40 && startY > brY - 40) isResizing = true;
             else if (startX >= currentCrop.x && startX <= brX && startY >= currentCrop.y && startY <= brY) isDragging = true;
-            
-            renderMainDisplay(); // Trigger grid draw
+            renderMainDisplay();
         });
 
         mainCanvas.addEventListener('touchmove', (e) => {
             if (!isDragging && !isResizing) return;
             e.preventDefault();
-            const touch = e.touches[0];
-            const rect = mainCanvas.getBoundingClientRect();
-            const scaleX = mainCanvas.width / rect.width;
-            const scaleY = mainCanvas.height / rect.height;
-            const curX = (touch.clientX - rect.left) * scaleX;
-            const curY = (touch.clientY - rect.top) * scaleY;
-
+            const touch = e.touches[0], rect = mainCanvas.getBoundingClientRect();
+            const scaleX = mainCanvas.width / rect.width, scaleY = mainCanvas.height / rect.height;
+            const curX = (touch.clientX - rect.left) * scaleX, curY = (touch.clientY - rect.top) * scaleY;
             if (isResizing) {
                 currentCrop.width = Math.max(100, Math.min(mainCanvas.width - currentCrop.x, currentCrop.width + (curX - startX)));
                 currentCrop.height = Math.max(100, Math.min(mainCanvas.height - currentCrop.y, currentCrop.height + (curY - startY)));
@@ -149,22 +143,15 @@
                 currentCrop.x = Math.max(0, Math.min(mainCanvas.width - currentCrop.width, currentCrop.x + (curX - startX)));
                 currentCrop.y = Math.max(0, Math.min(mainCanvas.height - currentCrop.height, currentCrop.y + (curY - startY)));
             }
-            startX = curX; startY = curY;
-            renderMainDisplay();
+            startX = curX; startY = curY; renderMainDisplay();
         });
 
-        mainCanvas.addEventListener('touchend', () => { 
-            isDragging = false; 
-            isResizing = false; 
-            renderMainDisplay(); // Remove grid on release
-        });
+        mainCanvas.addEventListener('touchend', () => { isDragging = false; isResizing = false; renderMainDisplay(); });
 
         async function processImage(img) {
-            rail.innerHTML = '';
-            previewSaveBtn.style.display = 'none'; resetBtn.style.display = 'none';
+            rail.innerHTML = ''; previewSaveBtn.style.display = 'none'; resetBtn.style.display = 'none';
             const options = [{n:"Square",w:1,h:1}, {n:"Portrait",w:4,h:5}, {n:"Classic",w:3,h:2}, {n:"Story",w:9,h:16}, {n:"Cinema",w:2.39,h:1}];
-            mainCanvas.width = img.width; mainCanvas.height = img.height;
-            mCtx.drawImage(img, 0, 0);
+            mainCanvas.width = img.width; mainCanvas.height = img.height; mCtx.drawImage(img, 0, 0);
             for (let opt of options) {
                 const result = await smartcrop.crop(img, { width: opt.w * 100, height: opt.h * 100 });
                 createCropCard(img, result.topCrop, opt.n);
@@ -173,64 +160,39 @@
 
         function renderMainDisplay() {
             if(!currentImg) return;
-            mCtx.clearRect(0,0,mainCanvas.width,mainCanvas.height);
-            mCtx.drawImage(currentImg,0,0);
-            
-            // Background Overlay
+            mCtx.clearRect(0,0,mainCanvas.width,mainCanvas.height); mCtx.drawImage(currentImg,0,0);
             mCtx.fillStyle = "rgba(0,0,0,0.65)";
             mCtx.fillRect(0,0,mainCanvas.width,currentCrop.y);
             mCtx.fillRect(0,currentCrop.y+currentCrop.height,mainCanvas.width,mainCanvas.height);
             mCtx.fillRect(0,currentCrop.y,currentCrop.x,currentCrop.height);
             mCtx.fillRect(currentCrop.x+currentCrop.width,currentCrop.y,mainCanvas.width,currentCrop.height);
-            
-            // Crop Border
-            mCtx.strokeStyle = '#007AFF'; 
-            mCtx.lineWidth = Math.max(currentImg.width, currentImg.height) * 0.005;
+            mCtx.strokeStyle = '#007AFF'; mCtx.lineWidth = Math.max(currentImg.width, currentImg.height) * 0.005;
             mCtx.strokeRect(currentCrop.x, currentCrop.y, currentCrop.width, currentCrop.height);
-            
-            // Resize Handle (Bottom Right)
-            mCtx.fillStyle = '#fff'; 
-            mCtx.fillRect(currentCrop.x+currentCrop.width-15, currentCrop.y+currentCrop.height-15, 30, 30);
-
-            // Rule of Thirds Grid (Only while interacting)
-            if (isDragging || isResizing) {
-                drawGrid(currentCrop);
-            }
+            mCtx.fillStyle = '#fff'; mCtx.fillRect(currentCrop.x+currentCrop.width-15, currentCrop.y+currentCrop.height-15, 30, 30);
+            if (isDragging || isResizing) drawGrid(currentCrop);
         }
 
         function createCropCard(img, crop, label) {
             const card = document.createElement('div'); card.className = 'crop-card';
-            const thumb = document.createElement('canvas');
-            thumb.width = crop.width; thumb.height = crop.height;
+            const thumb = document.createElement('canvas'); thumb.width = crop.width; thumb.height = crop.height;
             thumb.getContext('2d').drawImage(img, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
             card.innerHTML = `<span>${label}</span>`; card.prepend(thumb);
             card.onclick = () => {
-                aiSuggestedCrop = Object.assign({}, crop);
-                currentCrop = Object.assign({}, crop);
-                renderMainDisplay();
-                previewSaveBtn.style.display = 'inline-block'; resetBtn.style.display = 'inline-block';
-                document.querySelectorAll('.crop-card').forEach(c => c.classList.remove('selected'));
-                card.classList.add('selected');
+                aiSuggestedCrop = Object.assign({}, crop); currentCrop = Object.assign({}, crop);
+                renderMainDisplay(); previewSaveBtn.style.display = 'inline-block'; resetBtn.style.display = 'inline-block';
+                document.querySelectorAll('.crop-card').forEach(c => c.classList.remove('selected')); card.classList.add('selected');
             };
             rail.appendChild(card);
         }
 
         function drawGrid(crop) {
-            mCtx.setLineDash([15, 15]);
-            mCtx.strokeStyle = 'rgba(255,255,255,0.7)';
+            mCtx.setLineDash([15, 15]); mCtx.strokeStyle = 'rgba(255,255,255,0.7)';
             mCtx.lineWidth = Math.max(crop.width, crop.height) * 0.003;
-            
             for(let i=1; i<=2; i++) {
-                // Vertical Lines
-                mCtx.beginPath();
-                mCtx.moveTo(crop.x + (crop.width/3)*i, currentCrop.y);
-                mCtx.lineTo(crop.x + (crop.width/3)*i, currentCrop.y + currentCrop.height);
-                mCtx.stroke();
-                // Horizontal Lines
-                mCtx.beginPath();
-                mCtx.moveTo(currentCrop.x, currentCrop.y + (currentCrop.height/3)*i);
-                mCtx.lineTo(currentCrop.x + currentCrop.width, currentCrop.y + (currentCrop.height/3)*i);
-                mCtx.stroke();
+                mCtx.beginPath(); mCtx.moveTo(crop.x + (crop.width/3)*i, currentCrop.y);
+                mCtx.lineTo(crop.x + (crop.width/3)*i, currentCrop.y + currentCrop.height); mCtx.stroke();
+                mCtx.beginPath(); mCtx.moveTo(currentCrop.x, currentCrop.y + (currentCrop.height/3)*i);
+                mCtx.lineTo(currentCrop.x + currentCrop.width, currentCrop.y + (currentCrop.height/3)*i); mCtx.stroke();
             }
         }
     </script>
