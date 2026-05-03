@@ -91,15 +91,48 @@
             reader.onload = (event) => {
                 const img = new Image();
                 img.onload = () => { 
-                    currentImg = img; 
-                    try { originalExif = piexif.load(event.target.result); } 
-                    catch (e) { originalExif = null; }
-                    processImage(img); 
+                    try { 
+                        originalExif = piexif.load(event.target.result);
+                        const orientation = originalExif["0th"][piexif.ImageIFD.Orientation];
+                        if (orientation && orientation !== 1) {
+                            currentImg = fixOrientation(img, orientation);
+                        } else {
+                            currentImg = img;
+                        }
+                    } 
+                    catch (e) { 
+                        originalExif = null; 
+                        currentImg = img;
+                    }
+                    processImage(currentImg); 
                 };
                 img.src = event.target.result;
             };
             reader.readAsDataURL(file);
         });
+
+        function fixOrientation(img, orientation) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (orientation >= 5 && orientation <= 8) {
+                canvas.width = img.height; canvas.height = img.width;
+            } else {
+                canvas.width = img.width; canvas.height = img.height;
+            }
+            switch (orientation) {
+                case 2: ctx.transform(-1, 0, 0, 1, img.width, 0); break;
+                case 3: ctx.transform(-1, 0, 0, -1, img.width, img.height); break;
+                case 4: ctx.transform(1, 0, 0, -1, 0, img.height); break;
+                case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;
+                case 6: ctx.transform(0, 1, -1, 0, img.height, 0); break;
+                case 7: ctx.transform(0, -1, -1, 0, img.height, img.width); break;
+                case 8: ctx.transform(0, -1, 1, 0, 0, img.width); break;
+            }
+            ctx.drawImage(img, 0, 0);
+            const newImg = new Image();
+            newImg.src = canvas.toDataURL("image/jpeg", 1.0);
+            return newImg;
+        }
 
         previewSaveBtn.addEventListener('click', () => {
             const tempCanvas = document.createElement('canvas');
@@ -107,7 +140,11 @@
             tempCanvas.getContext('2d').drawImage(currentImg, currentCrop.x, currentCrop.y, currentCrop.width, currentCrop.height, 0, 0, currentCrop.width, currentCrop.height);
             let dataUrl = tempCanvas.toDataURL("image/jpeg", 0.95);
             if (originalExif) {
-                try { dataUrl = piexif.insert(piexif.dump(originalExif), dataUrl); } catch (e) {}
+                try { 
+                    // Update orientation to 'Normal' for the new upright file
+                    originalExif["0th"][piexif.ImageIFD.Orientation] = 1;
+                    dataUrl = piexif.insert(piexif.dump(originalExif), dataUrl); 
+                } catch (e) {}
             }
             finalImg.src = dataUrl;
             saveModal.style.display = 'flex';
@@ -118,12 +155,9 @@
 
         mainCanvas.addEventListener('touchstart', (e) => {
             if (!currentCrop) return;
-            const touch = e.touches[0];
-            const rect = mainCanvas.getBoundingClientRect();
-            const scaleX = mainCanvas.width / rect.width;
-            const scaleY = mainCanvas.height / rect.height;
-            startX = (touch.clientX - rect.left) * scaleX;
-            startY = (touch.clientY - rect.top) * scaleY;
+            const touch = e.touches[0], rect = mainCanvas.getBoundingClientRect();
+            const scaleX = mainCanvas.width / rect.width, scaleY = mainCanvas.height / rect.height;
+            startX = (touch.clientX - rect.left) * scaleX; startY = (touch.clientY - rect.top) * scaleY;
             const brX = currentCrop.x + currentCrop.width, brY = currentCrop.y + currentCrop.height;
             if (startX > brX - 40 && startY > brY - 40) isResizing = true;
             else if (startX >= currentCrop.x && startX <= brX && startY >= currentCrop.y && startY <= brY) isDragging = true;
