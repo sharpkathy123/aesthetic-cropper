@@ -3,22 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Aesthetic Crop</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/smartcrop/2.0.5/smartcrop.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; background: #000; color: #fff; padding: 20px; }
-        #container { position: relative; display: inline-block; margin-top: 20px; max-width: 100%; }
-        canvas { max-width: 100%; border-radius: 12px; }
-        .controls { margin-top: 30px; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            text-align: center; 
+            background: #121212; 
+            color: #ffffff; 
+            padding: 20px;
+            margin: 0;
+        }
+        #container { 
+            position: relative; 
+            display: inline-block; 
+            margin-top: 20px; 
+            max-width: 100%; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        canvas { 
+            max-width: 100%; 
+            display: block;
+        }
+        .controls { 
+            margin-top: 30px; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
         input[type="file"] { display: none; }
-        .btn { background: #007AFF; color: white; padding: 15px 30px; border-radius: 25px; font-weight: bold; text-decoration: none; display: inline-block; cursor: pointer; }
-        p { color: #888; font-size: 14px; }
+        .btn { 
+            background: #007AFF; 
+            color: white; 
+            padding: 16px 32px; 
+            border-radius: 28px; 
+            font-weight: 600; 
+            text-decoration: none; 
+            display: inline-block; 
+            cursor: pointer;
+            border: none;
+            font-size: 17px;
+            min-width: 200px;
+        }
+        .btn-save {
+            background: #34C759; /* Apple Green */
+        }
+        h2 { margin-bottom: 5px; letter-spacing: -0.5px; }
+        p { color: #8e8e93; font-size: 14px; margin-bottom: 20px; }
+        #downloadContainer { margin-top: 10px; }
     </style>
 </head>
 <body>
 
     <h2>Aesthetic Cropper</h2>
-    <p>AI suggests the best framing for your photo.</p>
+    <p>AI-powered saliency detection & framing.</p>
 
     <div id="container">
         <canvas id="displayCanvas"></canvas>
@@ -27,44 +70,70 @@
     <div class="controls">
         <label for="upload" class="btn">Choose Photo</label>
         <input type="file" id="upload" accept="image/*">
+        
+        <div id="downloadContainer"></div>
     </div>
 
     <script>
         const upload = document.getElementById('upload');
         const canvas = document.getElementById('displayCanvas');
         const ctx = canvas.getContext('2d');
+        const downloadContainer = document.getElementById('downloadContainer');
 
         upload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
                 img.onload = () => {
-                    // 1. Draw original image to canvas
+                    // Clear previous download buttons
+                    downloadContainer.innerHTML = '';
+
+                    // 1. Setup Canvas
                     canvas.width = img.width;
                     canvas.height = img.height;
                     ctx.drawImage(img, 0, 0);
 
-                    // 2. Run SmartCrop
+                    // 2. Run SmartCrop (Defaults to square 1:1, but smartcrop detects the best area)
                     smartcrop.crop(img, { width: 100, height: 100 }).then(result => {
                         const crop = result.topCrop;
                         
-                        // 3. Draw the "Suggested" box
+                        // 3. Create the Actual Cropped Image for Saving
+                        const cropCanvas = document.createElement('canvas');
+                        cropCanvas.width = crop.width;
+                        cropCanvas.height = crop.height;
+                        const cropCtx = cropCanvas.getContext('2d');
+                        cropCtx.drawImage(img, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+                        
+                        // 4. Draw UI Guide on Display Canvas
                         ctx.strokeStyle = '#007AFF';
-                        ctx.lineWidth = Math.max(img.width, img.height) * 0.01;
+                        ctx.lineWidth = Math.max(img.width, img.height) * 0.008;
                         ctx.strokeRect(crop.x, crop.y, crop.width, crop.height);
                         
-                        // 4. Add a Rule of Thirds grid inside the crop
+                        // Draw Rule of Thirds
                         drawGrid(crop);
+
+                        // 5. Create Save Button
+                        const saveBtn = document.createElement('a');
+                        saveBtn.innerText = "Save Cropped Image";
+                        saveBtn.className = "btn btn-save";
+                        saveBtn.download = "suggested-crop.jpg";
+                        saveBtn.href = cropCanvas.toDataURL("image/jpeg", 0.9);
+                        downloadContainer.appendChild(saveBtn);
                     });
                 };
                 img.src = event.target.result;
             };
-            reader.readAsDataURL(e.target.files[0]);
+            reader.readAsDataURL(file);
         });
 
         function drawGrid(crop) {
-            ctx.setLineDash([15, 15]);
-            ctx.lineWidth = ctx.lineWidth / 2;
+            ctx.setLineDash([Math.max(crop.width, crop.height) * 0.02, Math.max(crop.width, crop.height) * 0.02]);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.lineWidth = Math.max(crop.width, crop.height) * 0.003;
+
             // Vertical lines
             for(let i=1; i<=2; i++) {
                 ctx.beginPath();
