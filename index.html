@@ -2,62 +2,88 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>Aesthetic Choice</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/smartcrop/2.0.5/smartcrop.js"></script>
     <style>
+        :root {
+            --safe-bottom: env(safe-area-inset-bottom);
+        }
         body { 
             font-family: -apple-system, sans-serif; 
             text-align: center; 
             background: #000; 
             color: #fff; 
             margin: 0; 
-            padding-bottom: 50px;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #mainCanvasContainer {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #111;
+            overflow: hidden;
         }
         #mainDisplay { 
-            width: 100%; 
-            max-height: 50vh; 
+            max-width: 100%; 
+            max-height: 100%; 
             object-fit: contain; 
-            background: #1a1a1a;
         }
         .suggestion-rail {
+            height: 180px;
             display: flex;
             overflow-x: auto;
-            gap: 15px;
-            padding: 20px;
+            gap: 12px;
+            padding: 15px;
+            background: #1c1c1e;
+            border-top: 1px solid #333;
             -webkit-overflow-scrolling: touch;
+            padding-bottom: calc(15px + var(--safe-bottom));
         }
         .crop-card {
-            flex: 0 0 150px;
-            background: #222;
-            border-radius: 10px;
-            padding: 10px;
+            flex: 0 0 120px;
+            background: #2c2c2e;
+            border-radius: 12px;
+            padding: 8px;
             border: 2px solid transparent;
+            transition: border-color 0.2s;
         }
         .crop-card.selected { border-color: #007AFF; }
-        .crop-card canvas { width: 100%; border-radius: 5px; margin-bottom: 8px; }
-        .controls { padding: 20px; }
+        .crop-card canvas { width: 100%; border-radius: 6px; aspect-ratio: 1/1; object-fit: cover; }
+        .crop-card span { font-size: 12px; font-weight: 500; display: block; margin-top: 5px; }
+        
+        .controls { 
+            padding: 15px; 
+            background: #000;
+        }
         .btn { 
-            background: #007AFF; color: #fff; padding: 15px 30px; 
-            border-radius: 25px; font-weight: bold; display: inline-block; cursor: pointer;
+            background: #007AFF; color: #fff; padding: 12px 24px; 
+            border-radius: 20px; font-weight: 600; display: inline-block; cursor: pointer;
+            font-size: 16px;
         }
         input[type="file"] { display: none; }
-        h3 { margin: 20px 0 0 0; font-size: 1.2rem; }
     </style>
 </head>
 <body>
 
-    <canvas id="mainDisplay"></canvas>
+    <div id="mainCanvasContainer">
+        <canvas id="mainDisplay"></canvas>
+    </div>
 
     <div class="controls">
         <label for="upload" class="btn">Pick Photo</label>
         <input type="file" id="upload" accept="image/*">
     </div>
 
-    <h3>Aesthetic Options</h3>
     <div class="suggestion-rail" id="rail">
-        </div>
+        <div style="width: 100%; color: #666; padding-top: 40px;">Select a photo to see suggestions...</div>
+    </div>
 
     <script>
         const upload = document.getElementById('upload');
@@ -66,34 +92,37 @@
         const mCtx = mainCanvas.getContext('2d');
 
         upload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
-                img.onload = () => {
-                    processImage(img);
-                };
+                img.onload = () => processImage(img);
                 img.src = event.target.result;
             };
-            reader.readAsDataURL(e.target.files[0]);
+            reader.readAsDataURL(file);
         });
 
         async function processImage(img) {
-            rail.innerHTML = ''; // Clear old ones
+            rail.innerHTML = ''; 
             
-            // We'll ask for 3 different types of crops
+            // Define the aspect ratios we want to suggest
             const options = [
-                { name: "Balanced", width: 1, height: 1 },
-                { name: "Wide", width: 16, height: 9 },
-                { name: "Portrait", width: 4, height: 5 }
+                { name: "Square", w: 1, h: 1 },
+                { name: "Landscape", w: 16, h: 9 },
+                { name: "Portrait", w: 4, h: 5 },
+                { name: "Cinematic", w: 2.35, h: 1 }
             ];
 
-            // Display original on main canvas
+            // Setup main display
             mainCanvas.width = img.width;
             mainCanvas.height = img.height;
             mCtx.drawImage(img, 0, 0);
 
             for (let opt of options) {
-                const result = await smartcrop.crop(img, { width: opt.width, height: opt.height });
+                // Smartcrop.js logic
+                const result = await smartcrop.crop(img, { width: opt.w * 100, height: opt.h * 100 });
                 createCropCard(img, result.topCrop, opt.name);
             }
         }
@@ -112,17 +141,38 @@
             card.prepend(thumb);
             
             card.onclick = () => {
-                // When clicked, show high-res crop on main display
+                // Redraw original
                 mCtx.drawImage(img, 0, 0);
+                
+                // Draw crop box
                 mCtx.strokeStyle = '#007AFF';
                 mCtx.lineWidth = Math.max(img.width, img.height) * 0.01;
                 mCtx.strokeRect(crop.x, crop.y, crop.width, crop.height);
+                
+                // Draw Grid
+                drawGrid(crop);
                 
                 document.querySelectorAll('.crop-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
             };
             
             rail.appendChild(card);
+        }
+
+        function drawGrid(crop) {
+            mCtx.setLineDash([15, 15]);
+            mCtx.strokeStyle = 'rgba(255,255,255,0.5)';
+            mCtx.lineWidth = Math.max(crop.width, crop.height) * 0.005;
+            for(let i=1; i<=2; i++) {
+                mCtx.beginPath();
+                mCtx.moveTo(crop.x + (crop.width/3)*i, crop.y);
+                mCtx.lineTo(crop.x + (crop.width/3)*i, crop.y + crop.height);
+                mCtx.stroke();
+                mCtx.beginPath();
+                mCtx.moveTo(crop.x, crop.y + (crop.height/3)*i);
+                mCtx.lineTo(crop.x + crop.width, crop.y + (crop.height/3)*i);
+                mCtx.stroke();
+            }
         }
     </script>
 </body>
