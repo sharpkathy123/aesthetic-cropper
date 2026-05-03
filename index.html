@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Aesthetic Choice</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/smartcrop/2.0.5/smartcrop.js"></script>
     <style>
@@ -20,12 +21,11 @@
         }
         #mainDisplay { max-width: 100%; max-height: 100%; border-radius: 8px; }
         
-        /* Modal for the final saveable image */
         #saveModal {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); z-index: 100; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.95); z-index: 100; flex-direction: column; align-items: center; justify-content: center;
         }
-        #saveModal img { max-width: 90%; max-height: 70%; border-radius: 8px; box-shadow: 0 0 20px rgba(255,255,255,0.2); }
+        #saveModal img { max-width: 90%; max-height: 70%; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
         
         .suggestion-rail {
             height: 140px; display: flex; overflow-x: auto; align-items: flex-start;
@@ -55,9 +55,9 @@
     </div>
 
     <div id="saveModal">
-        <p>Long-press image to "Save to Photos"</p>
+        <p style="margin-bottom:20px; font-weight:600;">Long-press to "Save to Photos"</p>
         <img id="finalImage" src="">
-        <button class="btn" style="margin-top:20px;" onclick="closeModal()">BACK TO EDIT</button>
+        <button class="btn" style="margin-top:30px; background:#444; color:#fff;" onclick="closeModal()">BACK TO EDIT</button>
     </div>
 
     <div class="controls">
@@ -113,7 +113,6 @@
             renderMainDisplay();
         });
 
-        // Touch Interaction Logic
         mainCanvas.addEventListener('touchstart', (e) => {
             if (!currentCrop) return;
             const touch = e.touches[0];
@@ -126,8 +125,11 @@
             const brX = currentCrop.x + currentCrop.width;
             const brY = currentCrop.y + currentCrop.height;
             
+            // Check for resize handle (bottom right)
             if (startX > brX - 40 && startY > brY - 40) isResizing = true;
             else if (startX >= currentCrop.x && startX <= brX && startY >= currentCrop.y && startY <= brY) isDragging = true;
+            
+            renderMainDisplay(); // Trigger grid draw
         });
 
         mainCanvas.addEventListener('touchmove', (e) => {
@@ -151,7 +153,11 @@
             renderMainDisplay();
         });
 
-        mainCanvas.addEventListener('touchend', () => { isDragging = false; isResizing = false; });
+        mainCanvas.addEventListener('touchend', () => { 
+            isDragging = false; 
+            isResizing = false; 
+            renderMainDisplay(); // Remove grid on release
+        });
 
         async function processImage(img) {
             rail.innerHTML = '';
@@ -166,16 +172,30 @@
         }
 
         function renderMainDisplay() {
+            if(!currentImg) return;
             mCtx.clearRect(0,0,mainCanvas.width,mainCanvas.height);
             mCtx.drawImage(currentImg,0,0);
-            mCtx.fillStyle = "rgba(0,0,0,0.6)";
+            
+            // Background Overlay
+            mCtx.fillStyle = "rgba(0,0,0,0.65)";
             mCtx.fillRect(0,0,mainCanvas.width,currentCrop.y);
             mCtx.fillRect(0,currentCrop.y+currentCrop.height,mainCanvas.width,mainCanvas.height);
             mCtx.fillRect(0,currentCrop.y,currentCrop.x,currentCrop.height);
             mCtx.fillRect(currentCrop.x+currentCrop.width,currentCrop.y,mainCanvas.width,currentCrop.height);
-            mCtx.strokeStyle = '#007AFF'; mCtx.lineWidth = Math.max(currentImg.width, currentImg.height) * 0.005;
+            
+            // Crop Border
+            mCtx.strokeStyle = '#007AFF'; 
+            mCtx.lineWidth = Math.max(currentImg.width, currentImg.height) * 0.005;
             mCtx.strokeRect(currentCrop.x, currentCrop.y, currentCrop.width, currentCrop.height);
-            mCtx.fillStyle = '#fff'; mCtx.fillRect(currentCrop.x+currentCrop.width-15, currentCrop.y+currentCrop.height-15, 30, 30);
+            
+            // Resize Handle (Bottom Right)
+            mCtx.fillStyle = '#fff'; 
+            mCtx.fillRect(currentCrop.x+currentCrop.width-15, currentCrop.y+currentCrop.height-15, 30, 30);
+
+            // Rule of Thirds Grid (Only while interacting)
+            if (isDragging || isResizing) {
+                drawGrid(currentCrop);
+            }
         }
 
         function createCropCard(img, crop, label) {
@@ -193,6 +213,25 @@
                 card.classList.add('selected');
             };
             rail.appendChild(card);
+        }
+
+        function drawGrid(crop) {
+            mCtx.setLineDash([15, 15]);
+            mCtx.strokeStyle = 'rgba(255,255,255,0.7)';
+            mCtx.lineWidth = Math.max(crop.width, crop.height) * 0.003;
+            
+            for(let i=1; i<=2; i++) {
+                // Vertical Lines
+                mCtx.beginPath();
+                mCtx.moveTo(crop.x + (crop.width/3)*i, currentCrop.y);
+                mCtx.lineTo(crop.x + (crop.width/3)*i, currentCrop.y + currentCrop.height);
+                mCtx.stroke();
+                // Horizontal Lines
+                mCtx.beginPath();
+                mCtx.moveTo(currentCrop.x, currentCrop.y + (currentCrop.height/3)*i);
+                mCtx.lineTo(currentCrop.x + currentCrop.width, currentCrop.y + (currentCrop.height/3)*i);
+                mCtx.stroke();
+            }
         }
     </script>
 </body>
